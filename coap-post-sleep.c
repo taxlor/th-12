@@ -129,6 +129,8 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
   uip_ipaddr_t *new_addr;
   const char *pstr;
   size_t len = 0;
+  char delims = ',';
+  char *rgbstr = NULL;
 
   if ((len = REST.get_query_variable(request, "param", &pstr))) {
     if (strncmp(pstr, "red", len) == 0) {
@@ -137,6 +139,8 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
       param = &th12_cfg.green;
     } else if(strncmp(pstr, "blue", len) == 0) {
       param = &th12_cfg.blue;
+    } else if(strncmp(pstr, "rgb", len) == 0) {
+
     } else {
       goto bad;
     }
@@ -147,11 +151,32 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
   if (REST.get_method_type(request) == METHOD_POST) {
     const uint8_t *new;
     REST.get_request_payload(request, &new);
-    *(uint8_t *)param = (uint8_t)atoi(new);
+    if (rgbinput){
+      rgbstr = strtok(new,delims);
+      th12_cfg.red = (uint8_t)atoi(rgbstr);
+      rgbstr = strtok(new,delims);
+      th12_cfg.green = (uint8_t)atoi(rgbstr);
+      rgbstr = strtok(new,delims);
+      th12_cfg.blue = (uint8_t)atoi(rgbstr);
+    } else {
+      *(uint8_t *)param = (uint8_t)atoi(new);
+    }
+
     th12_config_save(&th12_cfg);
     
 
-    //set duty ratio properly here
+    // set duty ratios here
+    
+    uint8 red,green,blue;
+
+    red   = ( 65535 - (th12_cfg.red * 65535 / 256) )   &= 65535;
+    green = ( 65535 - (th12_cfg.green * 65535 / 256) ) &= 65535;
+    blue  = ( 65535 - (th12_cfg.blue * 65535 / 256) )  &= 65535;
+
+    pwm_duty(TMR0, blue);
+    pwm_duty(TMR1, red);
+    pwm_duty(TMR2, green);
+
 
   } else { /* GET */
     uint8_t n;
@@ -180,6 +205,15 @@ PROCESS_THREAD(lantern, ev, data)
   rest_activate_resource(&resource_config);
 
   PRINTF("Taylor's Awesome Lantern!!1!\n\r");
+
+  /* Initialize the pwm stuff */
+  /* maximize PWM frequency and set initial values to zero */
+  pwm_init_stopped(TMR0, 12000000, 16384);
+  pwm_init_stopped(TMR1, 12000000, 16384);
+  pwm_init_stopped(TMR2, 12000000, 16384);
+
+  TMR0->ENBL |= TMR_ENABLE_BIT(TMR0) | TMR_ENABLE_BIT(TMR1) | TMR_ENABLE_BIT(TMR2);
+
 
 #ifdef RPL_LEAF_ONLY
   PRINTF("RPL LEAF ONLY\n\r");
