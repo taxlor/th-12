@@ -129,8 +129,9 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
   uip_ipaddr_t *new_addr;
   const char *pstr;
   size_t len = 0;
-  char delims = ',';
+  char *delims = ",";
   char *rgbstr = NULL;
+  uint8_t rgbarray[3];
 
   if ((len = REST.get_query_variable(request, "param", &pstr))) {
     if (strncmp(pstr, "red", len) == 0) {
@@ -140,7 +141,8 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
     } else if(strncmp(pstr, "blue", len) == 0) {
       param = &th12_cfg.blue;
     } else if(strncmp(pstr, "rgb", len) == 0) {
-
+    } else if(strncmp(pstr, "channel", len) == 0) {
+      param = &mc1322x_config.channel;
     } else {
       goto bad;
     }
@@ -151,13 +153,15 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
   if (REST.get_method_type(request) == METHOD_POST) {
     const uint8_t *new;
     REST.get_request_payload(request, &new);
-    if (rgbinput){
-      rgbstr = strtok(new,delims);
-      th12_cfg.red = (uint8_t)atoi(rgbstr);
-      rgbstr = strtok(new,delims);
-      th12_cfg.green = (uint8_t)atoi(rgbstr);
-      rgbstr = strtok(new,delims);
-      th12_cfg.blue = (uint8_t)atoi(rgbstr);
+    if(strncmp(pstr, "channel", len) == 0) {
+      *(uint8_t *)param = (uint8_t)atoi(new) - 11;
+    } else if (strncmp(pstr, "rgb", len) == 0 ){
+      rgbstr = strtok((char *)new,delims);
+      *(uint8_t *)&th12_cfg.red = (uint8_t)atoi(rgbstr);
+      rgbstr = strtok(NULL,delims);
+      *(uint8_t *)&th12_cfg.green = (uint8_t)atoi(rgbstr);
+      rgbstr = strtok(NULL,delims);
+      *(uint8_t *)&th12_cfg.blue = (uint8_t)atoi(rgbstr);
     } else {
       *(uint8_t *)param = (uint8_t)atoi(new);
     }
@@ -165,13 +169,25 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
     th12_config_save(&th12_cfg);
     
 
+    /* do clean-up actions */
+    if(strncmp(pstr, "channel", len) == 0) {
+      set_channel(mc1322x_config.channel);
+      mc1322x_config_save(&mc1322x_config);
+      CRM->SW_RST = 0x87651234;
+      while (1) { continue; }
+    }
+    
     // set duty ratios here
     
-    uint8 red,green,blue;
+    uint16_t red,green,blue;
 
-    red   = ( 65535 - (th12_cfg.red * 65535 / 256) )   &= 65535;
-    green = ( 65535 - (th12_cfg.green * 65535 / 256) ) &= 65535;
-    blue  = ( 65535 - (th12_cfg.blue * 65535 / 256) )  &= 65535;
+    red   = ( 65535 - (th12_cfg.red * 65535 / 256) ) ;
+    green = ( 65535 - (th12_cfg.green * 65535 / 256) );
+    blue  = ( 65535 - (th12_cfg.blue * 65535 / 256) ) ;
+
+    red &= 65535;
+    green &= 65535;
+    blue &= 65535;
 
     pwm_duty(TMR0, blue);
     pwm_duty(TMR1, red);
@@ -180,7 +196,11 @@ config_handler(void* request, void* response, uint8_t *buffer, uint16_t preferre
 
   } else { /* GET */
     uint8_t n;
-    n = sprintf(buffer, "%d", *(uint8_t *)param);
+    if (strncmp(pstr, "channel", len) == 0) {
+      n = sprintf(buffer, "%d", *(uint8_t *)param + 11);
+    } else {
+      n = sprintf(buffer, "%d", *(uint8_t *)param);
+    }
     REST.set_response_payload(response, buffer, n);
   }
 
